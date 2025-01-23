@@ -69,7 +69,7 @@ with left_column:
     st.header('Parameters')
     
     ticker_symbol = st.text_input(
-        'Ticker Symbol', value='AAPL', max_chars=10
+        'Ticker Symbol', value='SPY', max_chars=10
     ).upper()
 
     risk_free_rate = st.slider(
