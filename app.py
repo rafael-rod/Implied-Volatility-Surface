@@ -1,3 +1,4 @@
+import time
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -39,6 +40,27 @@ def implied_volatility(price, S, K, T, r, q=0):
         implied_vol = np.nan
 
     return implied_vol
+
+# Obtener el precio de cierre (spot price) con reintentos
+def get_spot_price(ticker_symbol):
+    retries = 5
+    for i in range(retries):
+        try:
+            ticker = yf.Ticker(ticker_symbol)
+            spot_history = ticker.history(period='5d')
+            if not spot_history.empty:
+                return spot_history['Close'].iloc[-1]
+            else:
+                st.error(f"❌ No spot price data available for {ticker_symbol}.")
+                return None
+        except Exception as e:
+            if i < retries - 1:
+                st.warning(f"Attempt {i+1} failed. Retrying...")
+                time.sleep(2)  # Espera 2 segundos antes de intentar de nuevo
+                continue
+            else:
+                st.error(f"❌ Error retrieving spot price after {retries} attempts: {e}")
+                return None
 
 # Parámetros del modelo en el panel lateral
 with st.sidebar:
@@ -137,16 +159,10 @@ else:
     else:
         options_df = pd.DataFrame(option_data)
 
-        try:
-            spot_history = ticker.history(period='5d')
-            if spot_history.empty:
-                st.error(f'❌ Failed to retrieve spot price data for {ticker_symbol}.')
-                st.stop()
-            else:
-                spot_price = spot_history['Close'].iloc[-1]
-        except Exception as e:
-            st.error(f'❌ An error occurred while fetching spot price data: {e}')
-            st.stop()
+        # Obtener el precio de spot con reintentos
+        spot_price = get_spot_price(ticker_symbol)
+        if spot_price is None:
+            st.stop()  # Si no se obtiene el precio de spot, detenemos la ejecución
 
         options_df['daysToExpiration'] = (options_df['expirationDate'] - today).dt.days
         options_df['timeToExpiration'] = options_df['daysToExpiration'] / 365
