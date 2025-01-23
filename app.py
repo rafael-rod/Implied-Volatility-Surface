@@ -62,68 +62,70 @@ def get_spot_price(ticker_symbol):
                 st.error(f"❌ Error retrieving spot price after {retries} attempts: {e}")
                 return None
 
-# Create two columns
-left_column, right_column = st.columns([1, 2])
+def main():
+    # Create two columns
+    left_column, right_column = st.columns([1, 2])
 
-with left_column:
-    st.header('Parameters')
-    
-    ticker_symbol = st.text_input(
-        'Ticker Symbol', value='SPY', max_chars=10
-    ).upper()
+    with left_column:
+        st.header('Parameters')
+        
+        ticker_symbol = st.text_input(
+            'Ticker Symbol', value='SPY', max_chars=10
+        ).upper()
 
-    risk_free_rate = st.slider(
-        'Risk-Free Rate',
-        min_value=0.0, max_value=0.1, value=0.015, step=0.001,
-        help="Risk-free interest rate (e.g., 0.015 for 1.5%)."
-    )
+        risk_free_rate = st.slider(
+            'Risk-Free Rate',
+            min_value=0.0, max_value=0.1, value=0.015, step=0.001,
+            help="Risk-free interest rate (e.g., 0.015 for 1.5%)."
+        )
 
-    dividend_yield = st.slider(
-        'Dividend Yield',
-        min_value=0.0, max_value=0.1, value=0.013, step=0.001,
-        help="Dividend yield rate (e.g., 0.013 for 1.3%)."
-    )
+        dividend_yield = st.slider(
+            'Dividend Yield',
+            min_value=0.0, max_value=0.1, value=0.013, step=0.001,
+            help="Dividend yield rate (e.g., 0.013 for 1.3%)."
+        )
 
-    min_strike_pct = st.slider(
-        'Minimum Strike Price (% of spot price)',
-        min_value=50.0, max_value=199.0, value=80.0, step=1.0,
-        help="Percentage of spot price for minimum strike."
-    )
+        min_strike_pct = st.slider(
+            'Minimum Strike Price (% of spot price)',
+            min_value=50.0, max_value=199.0, value=80.0, step=1.0,
+            help="Percentage of spot price for minimum strike."
+        )
 
-    max_strike_pct = st.slider(
-        'Maximum Strike Price (% of spot price)',
-        min_value=51.0, max_value=200.0, value=120.0, step=1.0,
-        help="Percentage of spot price for maximum strike."
-    )
+        max_strike_pct = st.slider(
+            'Maximum Strike Price (% of spot price)',
+            min_value=51.0, max_value=200.0, value=120.0, step=1.0,
+            help="Percentage of spot price for maximum strike."
+        )
 
-    y_axis_option = st.radio(
-        'Y-Axis Selection:',
-        ('Strike Price ($)', 'Moneyness'),
-        horizontal=True
-    )
+        y_axis_option = st.radio(
+            'Y-Axis Selection:',
+            ('Strike Price ($)', 'Moneyness'),
+            horizontal=True
+        )
 
-with right_column:
-    st.header('Implied Volatility Surface')
-    
-    if min_strike_pct >= max_strike_pct:
-        st.error('⚠️ Minimum percentage must be less than maximum percentage.')
-        st.stop()
+    with right_column:
+        st.header('Implied Volatility Surface')
+        
+        if min_strike_pct >= max_strike_pct:
+            st.error('⚠️ Minimum percentage must be less than maximum percentage.')
+            return
 
-    # Obtain Options Data (rest of the code remains the same as in the previous version)
-    ticker = yf.Ticker(ticker_symbol)
-    today = pd.Timestamp('today').normalize()
+        # Obtain Options Data
+        ticker = yf.Ticker(ticker_symbol)
+        today = pd.Timestamp('today').normalize()
 
-    try:
-        expirations = ticker.options
-    except Exception as e:
-        st.error(f'❌ Error fetching options for {ticker_symbol}: {e}')
-        st.stop()
+        try:
+            expirations = ticker.options
+        except Exception as e:
+            st.error(f'❌ Error fetching options for {ticker_symbol}: {e}')
+            return
 
-    exp_dates = [pd.Timestamp(exp) for exp in expirations if pd.Timestamp(exp) > today + timedelta(days=7)]
+        exp_dates = [pd.Timestamp(exp) for exp in expirations if pd.Timestamp(exp) > today + timedelta(days=7)]
 
-    if not exp_dates:
-        st.error(f'❌ No available option expiration dates for {ticker_symbol}.')
-    else:
+        if not exp_dates:
+            st.error(f'❌ No available option expiration dates for {ticker_symbol}.')
+            return
+
         option_data = []
 
         for exp_date in exp_dates:
@@ -152,80 +154,88 @@ with right_column:
 
         if not option_data:
             st.error('❌ No option data available after filtering.')
+            return
+
+        options_df = pd.DataFrame(option_data)
+
+        # Get spot price with retries
+        spot_price = get_spot_price(ticker_symbol)
+        if spot_price is None:
+            return
+
+        options_df['daysToExpiration'] = (options_df['expirationDate'] - today).dt.days
+        options_df['timeToExpiration'] = options_df['daysToExpiration'] / 365
+
+        options_df = options_df[
+            (options_df['strike'] >= spot_price * (min_strike_pct / 100)) &
+            (options_df['strike'] <= spot_price * (max_strike_pct / 100))
+        ]
+
+        options_df.reset_index(drop=True, inplace=True)
+
+        with st.spinner('⏳ Calculating implied volatility...'):
+            options_df['impliedVolatility'] = options_df.apply(
+                lambda row: implied_volatility(
+                    price=row['mid'],
+                    S=spot_price,
+                    K=row['strike'],
+                    T=row['timeToExpiration'],
+                    r=risk_free_rate,
+                    q=dividend_yield
+                ), axis=1
+            )
+
+        options_df.dropna(subset=['impliedVolatility'], inplace=True)
+        options_df['impliedVolatility'] *= 100
+        options_df.sort_values('strike', inplace=True)
+        options_df['moneyness'] = options_df['strike'] / spot_price
+
+        if len(options_df) < 10:
+            st.error('❌ Insufficient option data for surface generation.')
+            return
+
+        if y_axis_option == 'Strike Price ($)':
+            Y = options_df['strike'].values
+            y_label = 'Strike Price ($)'
         else:
-            options_df = pd.DataFrame(option_data)
+            Y = options_df['moneyness'].values
+            y_label = 'Moneyness (Strike / Spot)'
 
-            # Get spot price with retries
-            spot_price = get_spot_price(ticker_symbol)
-            if spot_price is None:
-                st.stop()
+        X = options_df['timeToExpiration'].values
+        Z = options_df['impliedVolatility'].values
 
-            options_df['daysToExpiration'] = (options_df['expirationDate'] - today).dt.days
-            options_df['timeToExpiration'] = options_df['daysToExpiration'] / 365
+        ti = np.linspace(X.min(), X.max(), 50)
+        ki = np.linspace(Y.min(), Y.max(), 50)
+        T, K = np.meshgrid(ti, ki)
 
-            options_df = options_df[
-                (options_df['strike'] >= spot_price * (min_strike_pct / 100)) &
-                (options_df['strike'] <= spot_price * (max_strike_pct / 100))
-            ]
+        Zi = griddata((X, Y), Z, (T, K), method='linear')
+        Zi = np.ma.array(Zi, mask=np.isnan(Zi))
 
-            options_df.reset_index(drop=True, inplace=True)
+        fig = go.Figure(data=[go.Surface(
+            x=T, y=K, z=Zi,
+            colorscale='Viridis',
+            colorbar_title='Implied Volatility (%)'
+        )])
 
-            with st.spinner('⏳ Calculating implied volatility...'):
-                options_df['impliedVolatility'] = options_df.apply(
-                    lambda row: implied_volatility(
-                        price=row['mid'],
-                        S=spot_price,
-                        K=row['strike'],
-                        T=row['timeToExpiration'],
-                        r=risk_free_rate,
-                        q=dividend_yield
-                    ), axis=1
-                )
+        fig.update_layout(
+            title=f'Implied Volatility Surface for {ticker_symbol} Options',
+            scene=dict(
+                xaxis_title='Time to Expiration (years)',
+                yaxis_title=y_label,
+                zaxis_title='Implied Volatility (%)'
+            ),
+            autosize=False,
+            width=1000,
+            height=800,
+            margin=dict(l=65, r=50, b=65, t=90)
+        )
 
-            options_df.dropna(subset=['impliedVolatility'], inplace=True)
-            options_df['impliedVolatility'] *= 100
-            options_df.sort_values('strike', inplace=True)
-            options_df['moneyness'] = options_df['strike'] / spot_price
+        st.plotly_chart(fig)
 
-            if y_axis_option == 'Strike Price ($)':
-                Y = options_df['strike'].values
-                y_label = 'Strike Price ($)'
-            else:
-                Y = options_df['moneyness'].values
-                y_label = 'Moneyness (Strike / Spot)'
+        st.write("---")
+        st.markdown(
+            "📊 **Made with ❤️ by Rafael Rodríguez** | [LinkedIn](https://www.linkedin.com/in/rafa-rod/) | [Visit my site](https://portfolio-lemon-pi-82.vercel.app/)"
+        )
 
-            X = options_df['timeToExpiration'].values
-            Z = options_df['impliedVolatility'].values
-
-            ti = np.linspace(X.min(), X.max(), 50)
-            ki = np.linspace(Y.min(), Y.max(), 50)
-            T, K = np.meshgrid(ti, ki)
-
-            Zi = griddata((X, Y), Z, (T, K), method='linear')
-            Zi = np.ma.array(Zi, mask=np.isnan(Zi))
-
-            fig = go.Figure(data=[go.Surface(
-                x=T, y=K, z=Zi,
-                colorscale='Viridis',
-                colorbar_title='Implied Volatility (%)'
-            )])
-
-            fig.update_layout(
-                title=f'Implied Volatility Surface for {ticker_symbol} Options',
-                scene=dict(
-                    xaxis_title='Time to Expiration (years)',
-                    yaxis_title=y_label,
-                    zaxis_title='Implied Volatility (%)'
-                ),
-                autosize=False,
-                width=1000,
-                height=800,
-                margin=dict(l=65, r=50, b=65, t=90)
-            )
-
-            st.plotly_chart(fig)
-
-            st.write("---")
-            st.markdown(
-                "📊 **Made with ❤️ by Rafael Rodríguez** | [LinkedIn](https://www.linkedin.com/in/rafa-rod/) | [Visit my site](https://portfolio-lemon-pi-82.vercel.app/)"
-            )
+if __name__ == "__main__":
+    main()
