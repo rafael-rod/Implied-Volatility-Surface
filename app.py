@@ -9,13 +9,13 @@ from scipy.optimize import brentq
 from scipy.interpolate import griddata
 import plotly.graph_objects as go
 
-# Título principal
+# Configuración de la página
 st.set_page_config(page_title="Implied Volatility Surface", layout="wide")
 st.title('🌟 Implied Volatility Surface')
 st.markdown(
     """
-    Analiza la superficie de volatilidad implícita de las opciones de un activo utilizando el modelo de Black-Scholes.
-    Ajusta los parámetros en el panel lateral para personalizar la visualización.
+    **Visualiza la superficie de volatilidad implícita de las opciones de un activo utilizando el modelo de Black-Scholes.**
+    Personaliza los parámetros en las pestañas para obtener un análisis detallado.
     """
 )
 
@@ -62,58 +62,53 @@ def get_spot_price(ticker_symbol):
                 st.error(f"❌ Error retrieving spot price after {retries} attempts: {e}")
                 return None
 
-# Parámetros del modelo en el panel lateral
-with st.sidebar:
-    st.header('⚙️ Model Parameters')
-    risk_free_rate = st.number_input(
-        'Risk-Free Rate (e.g., 0.015 for 1.5%)',
-        value=0.015,
-        format="%.4f"
-    )
+# Pestañas de parámetros
+with st.expander('⚙️ Model Parameters', expanded=True):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        risk_free_rate = st.slider(
+            'Tasa Libre de Riesgo',
+            min_value=0.0, max_value=0.1, value=0.015, step=0.001,
+            help="Tasa de interés libre de riesgo (por ejemplo, 0.015 para 1.5%)."
+        )
 
-    dividend_yield = st.number_input(
-        'Dividend Yield (e.g., 0.013 for 1.3%)',
-        value=0.013,
-        format="%.4f"
-    )
+        dividend_yield = st.slider(
+            'Rendimiento por Dividendos',
+            min_value=0.0, max_value=0.1, value=0.013, step=0.001,
+            help="Tasa de rendimiento de dividendos (por ejemplo, 0.013 para 1.3%)."
+        )
 
-    st.header('📈 Visualization Parameters')
-    y_axis_option = st.selectbox(
-        'Select Y-axis:',
-        ('Strike Price ($)', 'Moneyness')
-    )
+    with col2:
+        ticker_symbol = st.text_input(
+            'Símbolo del Ticker', value='SPY', max_chars=10
+        ).upper()
 
-    st.header('💡 Ticker Symbol')
-    ticker_symbol = st.text_input(
-        'Enter Ticker Symbol',
-        value='SPY',
-        max_chars=10
-    ).upper()
+        min_strike_pct = st.slider(
+            'Precio mínimo de strike (% del precio spot)',
+            min_value=50.0, max_value=199.0, value=80.0, step=1.0,
+            help="Porcentaje del precio spot para el strike mínimo."
+        )
 
-    st.header('🎯 Strike Price Filter')
-    min_strike_pct = st.number_input(
-        'Min Strike Price (% of Spot Price)',
-        min_value=50.0,
-        max_value=199.0,
-        value=80.0,
-        step=1.0,
-        format="%.1f"
-    )
-
-    max_strike_pct = st.number_input(
-        'Max Strike Price (% of Spot Price)',
-        min_value=51.0,
-        max_value=200.0,
-        value=120.0,
-        step=1.0,
-        format="%.1f"
-    )
+        max_strike_pct = st.slider(
+            'Precio máximo de strike (% del precio spot)',
+            min_value=51.0, max_value=200.0, value=120.0, step=1.0,
+            help="Porcentaje del precio spot para el strike máximo."
+        )
 
     if min_strike_pct >= max_strike_pct:
-        st.error('⚠️ Minimum percentage must be less than maximum percentage.')
+        st.error('⚠️ El porcentaje mínimo debe ser menor que el porcentaje máximo.')
         st.stop()
 
-# Fetch ticker data
+# Pestaña para visualización
+with st.expander('📈 Visualización de la Superficie de Volatilidad', expanded=True):
+    y_axis_option = st.radio(
+        'Selecciona el Eje Y:',
+        ('Precio de Strike ($)', 'Moneyness'),
+        horizontal=True
+    )
+
+# Obtener datos de opciones
 ticker = yf.Ticker(ticker_symbol)
 today = pd.Timestamp('today').normalize()
 
@@ -174,7 +169,7 @@ else:
 
         options_df.reset_index(drop=True, inplace=True)
 
-        with st.spinner('⏳ Calculating implied volatility...'):
+        with st.spinner('⏳ Calculando la volatilidad implícita...'):
             options_df['impliedVolatility'] = options_df.apply(
                 lambda row: implied_volatility(
                     price=row['mid'],
@@ -191,9 +186,9 @@ else:
         options_df.sort_values('strike', inplace=True)
         options_df['moneyness'] = options_df['strike'] / spot_price
 
-        if y_axis_option == 'Strike Price ($)':
+        if y_axis_option == 'Precio de Strike ($)':
             Y = options_df['strike'].values
-            y_label = 'Strike Price ($)'
+            y_label = 'Precio de Strike ($)'
         else:
             Y = options_df['moneyness'].values
             y_label = 'Moneyness (Strike / Spot)'
@@ -211,15 +206,15 @@ else:
         fig = go.Figure(data=[go.Surface(
             x=T, y=K, z=Zi,
             colorscale='Viridis',
-            colorbar_title='Implied Volatility (%)'
+            colorbar_title='Volatilidad Implícita (%)'
         )])
 
         fig.update_layout(
-            title=f'Implied Volatility Surface for {ticker_symbol} Options',
+            title=f'Superficie de Volatilidad Implícita para {ticker_symbol} Opciones',
             scene=dict(
-                xaxis_title='Time to Expiration (years)',
+                xaxis_title='Tiempo hasta la Expiración (años)',
                 yaxis_title=y_label,
-                zaxis_title='Implied Volatility (%)'
+                zaxis_title='Volatilidad Implícita (%)'
             ),
             autosize=False,
             width=1000,
@@ -231,5 +226,5 @@ else:
 
         st.write("---")
         st.markdown(
-            "📊 **Created by Your Name** | [LinkedIn](https://linkedin.com)"
+            "📊 **Creado por Tu Nombre** | [LinkedIn](https://linkedin.com)"
         )
