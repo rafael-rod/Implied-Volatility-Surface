@@ -227,5 +227,5 @@ with right_column:
 
             st.write("---")
             st.markdown(
-                "📊 **Created by Your Name** | [LinkedIn](https://linkedin.com)"
+                "📊 **Created with ❤️ by Rafael Rodríguez** | [LinkedIn](https://www.linkedin.com/in/rafa-rod/) | [Visit my site](https://portfolio-lemon-pi-82.vercel.app/)"
             )
