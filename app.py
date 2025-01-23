@@ -67,7 +67,7 @@ left_column, right_column = st.columns([1, 2])
 
 with left_column:
     st.header('Parameters')
-    
+
     ticker_symbol = st.text_input(
         'Ticker Symbol', value='SPY', max_chars=10
     ).upper()
@@ -104,12 +104,12 @@ with left_column:
 
 with right_column:
     st.header('Implied Volatility Surface')
-    
+
     if min_strike_pct >= max_strike_pct:
         st.error('⚠️ Minimum percentage must be less than maximum percentage.')
         st.stop()
 
-    # Obtain Options Data (rest of the code remains the same as in the previous version)
+    # Obtain Options Data
     ticker = yf.Ticker(ticker_symbol)
     today = pd.Timestamp('today').normalize()
 
@@ -186,6 +186,10 @@ with right_column:
             options_df['impliedVolatility'] *= 100
             options_df.sort_values('strike', inplace=True)
             options_df['moneyness'] = options_df['strike'] / spot_price
+
+            if options_df.empty:
+                st.error('❌ No valid option data available for plotting.')
+                st.stop()
 
             if y_axis_option == 'Strike Price ($)':
                 Y = options_df['strike'].values
